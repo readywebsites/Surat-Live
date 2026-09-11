@@ -1,0 +1,69 @@
+# Python byte-compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django database & local files
+db.sqlite3
+db.sqlite3-journal
+*.log
+local_settings.py
+
+# Django migrations (ignores generated migration files, keeps __init__.py)
+*/migrations/*.py
+!*/migrations/__init__.py
+
+# User uploaded media (images, files)
+media/
+
+# Static collected files for production
+staticfiles/
+static_collected/
+
+# Virtual Environment
+env/
+venv/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Unit test & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# Operating System files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+
+# Python distribution / packaging
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+
+# Note: Uncomment if you do NOT want to track the React production build in Git
+# dist/
