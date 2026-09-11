@@ -28,10 +28,13 @@ urlpatterns = [
     # React frontend static assets from dist
     re_path(r"^assets/(?P<path>.*)$", serve, {"document_root": settings.BASE_DIR / "dist" / "assets"}),
     re_path(r"^(?P<path>.*\.(?:ico|png|svg|jpg|jpeg|json|txt|webmanifest))$", serve, {"document_root": settings.BASE_DIR / "dist"}),
-
-    # Frontend Single Page Application fallback to dist/index.html
-    re_path(r"^.*$", TemplateView.as_view(template_name="index.html")),
 ]
 
 if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+urlpatterns += [
+    # Frontend Single Page Application fallback to dist/index.html
+    re_path(r"^.*$", TemplateView.as_view(template_name="index.html")),
+]
