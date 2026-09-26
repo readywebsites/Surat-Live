@@ -31,12 +31,13 @@ _env_allowed_hosts = os.environ.get("ALLOWED_HOSTS", "").split(",")
 ALLOWED_HOSTS = [
     "suratlive.biz499.com",
     "www.suratlive.biz499.com",
-    "suratlive.biz499.com",
-    "www.suratlive.biz499.com",
+    ".biz499.com",
+    "biz499.com",
     "localhost",
     "127.0.0.1",
     "0.0.0.0",
     "testserver",
+    "*",
 ]
 if any(_env_allowed_hosts):
     for _host in _env_allowed_hosts:
@@ -178,10 +179,8 @@ CORS_ALLOWED_ORIGINS = [
     "https://www.suratlive.biz499.com",
     "http://suratlive.biz499.com",
     "http://www.suratlive.biz499.com",
-    "https://suratlive.biz499.com",
-    "https://www.suratlive.biz499.com",
-    "http://suratlive.biz499.com",
-    "http://www.suratlive.biz499.com",
+    "https://biz499.com",
+    "http://biz499.com",
     # Local development hosts
     "http://localhost:5173",
     "http://localhost:5174",
@@ -208,10 +207,10 @@ CSRF_TRUSTED_ORIGINS = [
     "https://www.suratlive.biz499.com",
     "http://suratlive.biz499.com",
     "http://www.suratlive.biz499.com",
-    "https://suratlive.biz499.com",
-    "https://www.suratlive.biz499.com",
-    "http://suratlive.biz499.com",
-    "http://www.suratlive.biz499.com",
+    "https://*.biz499.com",
+    "http://*.biz499.com",
+    "https://biz499.com",
+    "http://biz499.com",
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:5178",
