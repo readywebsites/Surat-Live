@@ -29,10 +29,10 @@ DEBUG = True
 
 _env_allowed_hosts = os.environ.get("ALLOWED_HOSTS", "").split(",")
 ALLOWED_HOSTS = [
-    "onlinesurat.com",
-    "www.onlinesurat.com",
-    "Onlinesurat.com",
-    "www.Onlinesurat.com",
+    "suratlive.biz499.com",
+    "www.suratlive.biz499.com",
+    "suratlive.biz499.com",
+    "www.suratlive.biz499.com",
     "localhost",
     "127.0.0.1",
     "0.0.0.0",
@@ -174,14 +174,14 @@ MAILERS = {
 _env_cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
 CORS_ALLOWED_ORIGINS = [
     # Production live domains
-    "https://onlinesurat.com",
-    "https://www.onlinesurat.com",
-    "http://onlinesurat.com",
-    "http://www.onlinesurat.com",
-    "https://Onlinesurat.com",
-    "https://www.Onlinesurat.com",
-    "http://Onlinesurat.com",
-    "http://www.Onlinesurat.com",
+    "https://suratlive.biz499.com",
+    "https://www.suratlive.biz499.com",
+    "http://suratlive.biz499.com",
+    "http://www.suratlive.biz499.com",
+    "https://suratlive.biz499.com",
+    "https://www.suratlive.biz499.com",
+    "http://suratlive.biz499.com",
+    "http://www.suratlive.biz499.com",
     # Local development hosts
     "http://localhost:5173",
     "http://localhost:5174",
@@ -204,14 +204,14 @@ CORS_ALLOW_CREDENTIALS = True
 
 # CSRF Trusted Origins for live and local environments
 CSRF_TRUSTED_ORIGINS = [
-    "https://onlinesurat.com",
-    "https://www.onlinesurat.com",
-    "http://onlinesurat.com",
-    "http://www.onlinesurat.com",
-    "https://Onlinesurat.com",
-    "https://www.Onlinesurat.com",
-    "http://Onlinesurat.com",
-    "http://www.Onlinesurat.com",
+    "https://suratlive.biz499.com",
+    "https://www.suratlive.biz499.com",
+    "http://suratlive.biz499.com",
+    "http://www.suratlive.biz499.com",
+    "https://suratlive.biz499.com",
+    "https://www.suratlive.biz499.com",
+    "http://suratlive.biz499.com",
+    "http://www.suratlive.biz499.com",
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:5178",
