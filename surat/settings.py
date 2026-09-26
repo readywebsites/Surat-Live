@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 from pathlib import Path
 
+import os
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -25,7 +27,22 @@ SECRET_KEY = 'django-insecure-r@*7_&y@m%#x3+j^&ef$l3nb6f1j)8)k_oc^pu4(e)eq9@9k0m
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver"]
+_env_allowed_hosts = os.environ.get("ALLOWED_HOSTS", "").split(",")
+ALLOWED_HOSTS = [
+    "onlinesurat.com",
+    "www.onlinesurat.com",
+    "Onlinesurat.com",
+    "www.Onlinesurat.com",
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "testserver",
+]
+if any(_env_allowed_hosts):
+    for _host in _env_allowed_hosts:
+        _h = _host.strip()
+        if _h and _h not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(_h)
 
 
 # Application definition
@@ -58,10 +75,14 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'surat.urls'
 
+FRONTEND_DIST = BASE_DIR / 'dist'
+if not FRONTEND_DIST.exists() and (BASE_DIR.parent / 'frontend' / 'dist').exists():
+    FRONTEND_DIST = BASE_DIR.parent / 'frontend' / 'dist'
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'dist'],
+        'DIRS': [FRONTEND_DIST] if FRONTEND_DIST.exists() else [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -124,8 +145,8 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [
-    BASE_DIR / 'dist',
-]
+    FRONTEND_DIST,
+] if FRONTEND_DIST.exists() else []
 
 
 # Email
@@ -137,11 +158,62 @@ MAILERS = {
     },
 }
 
-# CORS Configuration for React Frontend
+# CORS Configuration for React Frontend & Live Domain
+_env_cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
 CORS_ALLOWED_ORIGINS = [
+    # Production live domains
+    "https://onlinesurat.com",
+    "https://www.onlinesurat.com",
+    "http://onlinesurat.com",
+    "http://www.onlinesurat.com",
+    "https://Onlinesurat.com",
+    "https://www.Onlinesurat.com",
+    "http://Onlinesurat.com",
+    "http://www.Onlinesurat.com",
+    # Local development hosts
     "http://localhost:5173",
+    "http://localhost:5174",
     "http://localhost:5178",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "http://127.0.0.1:5178",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
 ]
+if any(_env_cors_origins):
+    for _orig in _env_cors_origins:
+        _o = _orig.strip()
+        if _o and _o not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(_o)
+
+CORS_ALLOW_CREDENTIALS = True
+
+# CSRF Trusted Origins for live and local environments
+CSRF_TRUSTED_ORIGINS = [
+    "https://onlinesurat.com",
+    "https://www.onlinesurat.com",
+    "http://onlinesurat.com",
+    "http://www.onlinesurat.com",
+    "https://Onlinesurat.com",
+    "https://www.Onlinesurat.com",
+    "http://Onlinesurat.com",
+    "http://www.Onlinesurat.com",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5178",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "http://127.0.0.1:5178",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+]
+
+# Support SSL / HTTPS reverse proxies (e.g. Nginx, Cloudflare, Caddy)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
