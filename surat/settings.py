@@ -139,14 +139,26 @@ USE_I18N = True
 USE_TZ = True
 
 
-# Static files (CSS, JavaScript, Images)
+# Static files (CSS, JavaScript, Images) for collectstatic and deployment
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+# collectstatic destination directory:
+STATIC_ROOT = Path(os.environ.get("STATIC_ROOT", BASE_DIR / 'staticfiles'))
+
 STATICFILES_DIRS = [
     FRONTEND_DIST,
 ] if FRONTEND_DIST.exists() else []
+
+# Storage backends for static files
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 
 
 # Email
