@@ -11,7 +11,6 @@ from django.views.generic.base import RedirectView
 from django.views.static import serve
 from django.contrib.staticfiles.views import serve as staticfiles_serve
 from django.conf import settings
-from django.conf.urls.static import static
 from django.http import Http404
 
 
@@ -33,22 +32,14 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include("businesses.urls")),
 
+    # Serve static files dynamically across all apps (admin, etc.) without requiring collectstatic
+    re_path(r"^static/(?P<path>.*)$", serve_static),
+    re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),
+
     # React frontend static assets from dist
     re_path(r"^assets/(?P<path>.*)$", serve, {"document_root": getattr(settings, 'FRONTEND_DIST', settings.BASE_DIR / "dist") / "assets"}),
     re_path(r"^(?P<path>.*\.(?:ico|png|svg|jpg|jpeg|json|txt|webmanifest))$", serve, {"document_root": getattr(settings, 'FRONTEND_DIST', settings.BASE_DIR / "dist")}),
-]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
-urlpatterns += [
-    # Serve static files dynamically without needing collectstatic
-    re_path(r"^static/(?P<path>.*)$", serve_static),
-    re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),
-]
-
-urlpatterns += [
     # Frontend Single Page Application fallback to dist/index.html
     re_path(r"^.*$", TemplateView.as_view(template_name="index.html")),
 ]
