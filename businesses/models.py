@@ -561,8 +561,5 @@ def ensure_business_google_maps_column():
         pass
 
 
-ensure_business_google_maps_column()
-
-
 
 
