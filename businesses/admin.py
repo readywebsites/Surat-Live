@@ -83,8 +83,9 @@ class VendorCredentialAdmin(admin.ModelAdmin):
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ("name", "slug", "order", "is_active")
-    list_filter = ("is_active",)
+    list_display = ("name", "slug", "show_in_navbar", "order", "is_active")
+    list_editable = ("show_in_navbar", "order", "is_active")
+    list_filter = ("show_in_navbar", "is_active")
     search_fields = ("name", "description")
 
 
@@ -119,6 +120,7 @@ class BusinessAdmin(admin.ModelAdmin):
                     "description",
                     "image",
                     "address",
+                    "google_maps_link",
                     "phone",
                     "email",
                     "website",

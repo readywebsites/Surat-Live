@@ -26,6 +26,7 @@ class BusinessSerializer(serializers.ModelSerializer):
             "phone",
             "email",
             "website",
+            "google_maps_link",
             "image",
             "is_verified",
             "created_at",

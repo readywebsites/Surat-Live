@@ -48,6 +48,7 @@ def categories_list(request):
                     "description": cat.description,
                     "icon": getattr(cat, "icon", ""),
                     "order": getattr(cat, "order", 0),
+                    "show_in_navbar": bool(getattr(cat, "show_in_navbar", False)),
                     "count": cat.businesses.count(),
                 })
         else:
@@ -62,6 +63,7 @@ def categories_list(request):
                     "description": r[2] or "",
                     "icon": "",
                     "order": 0,
+                    "show_in_navbar": False,
                     "count": Business.objects.filter(category_id=r[0]).count(),
                 })
     except Exception as e:
@@ -124,7 +126,7 @@ def get_safe_business_qs():
         cursor.execute("PRAGMA table_info(businesses_business)")
         cols = [c[1] for c in cursor.fetchall()]
     unmigrated = [
-        f for f in ["is_activated", "vendor_username", "vendor_password"] if f not in cols
+        f for f in ["is_activated", "vendor_username", "vendor_password", "google_maps_link"] if f not in cols
     ]
     if unmigrated:
         return Business.objects.defer(*unmigrated).select_related("category"), cols
@@ -140,15 +142,41 @@ def businesses_list(request):
     else:
         businesses = qs.filter(is_verified=True).order_by("-created_at")
 
-    # Search filter (name, description, address, category)
+    # Search filter (name, description, address, category, products, services)
     q = request.GET.get("search") or request.GET.get("q")
     if q:
         q = q.strip()
-        businesses = businesses.filter(
-            models.Q(name__icontains=q)
-            | models.Q(description__icontains=q)
-            | models.Q(address__icontains=q)
-            | models.Q(category__name__icontains=q)
+        businesses = (
+            businesses.filter(
+                models.Q(name__icontains=q)
+                | models.Q(description__icontains=q)
+                | models.Q(address__icontains=q)
+                | models.Q(category__name__icontains=q)
+                | models.Q(products__name__icontains=q)
+                | models.Q(services__name__icontains=q)
+            )
+            .distinct()
+            .annotate(
+                search_rank=models.Case(
+                    models.When(name__iexact=q, then=models.Value(100)),
+                    models.When(name__istartswith=q, then=models.Value(90)),
+                    models.When(name__icontains=" " + q, then=models.Value(80)),
+                    models.When(category__name__iexact=q, then=models.Value(75)),
+                    models.When(category__name__istartswith=q, then=models.Value(70)),
+                    models.When(category__name__icontains=" " + q, then=models.Value(65)),
+                    models.When(name__icontains=q, then=models.Value(60)),
+                    models.When(category__name__icontains=q, then=models.Value(50)),
+                    models.When(products__name__istartswith=q, then=models.Value(45)),
+                    models.When(services__name__istartswith=q, then=models.Value(45)),
+                    models.When(products__name__icontains=q, then=models.Value(35)),
+                    models.When(services__name__icontains=q, then=models.Value(35)),
+                    models.When(address__icontains=q, then=models.Value(20)),
+                    models.When(description__icontains=q, then=models.Value(10)),
+                    default=models.Value(0),
+                    output_field=models.IntegerField(),
+                )
+            )
+            .order_by("-search_rank", "-created_at")
         )
 
     # Category filter (id, name, or slug)
@@ -166,8 +194,13 @@ def businesses_list(request):
             )
 
     data = []
+    seen_ids = set()
 
     for business in businesses:
+        if business.id in seen_ids:
+            continue
+        seen_ids.add(business.id)
+
         # Calculate rating and reviews
         approved_reviews = business.reviews.filter(is_approved=True)
         review_count = approved_reviews.count()
@@ -193,6 +226,7 @@ def businesses_list(request):
             "phone": business.phone,
             "email": business.email,
             "website": business.website,
+            "google_maps_link": getattr(business, "google_maps_link", "") or "",
             "image": image_url,
             "is_verified": business.is_verified,
             "is_activated": getattr(business, "is_activated", True) if "is_activated" in cols else True,
@@ -270,6 +304,7 @@ def business_detail(request, pk):
         "phone": business.phone,
         "email": business.email,
         "website": business.website,
+        "google_maps_link": getattr(business, "google_maps_link", "") or "",
         "image": image_url,
         "is_verified": business.is_verified,
         "rating": avg_rating,
@@ -785,6 +820,7 @@ def vendor_login(request):
                 "phone": business.phone,
                 "email": business.email,
                 "address": business.address,
+                "google_maps_link": getattr(business, "google_maps_link", "") or "",
                 "is_verified": business.is_verified,
                 "is_activated": is_active_val,
             },
@@ -877,6 +913,7 @@ def vendor_profile(request):
                 "category_slug": cat_slug,
                 "description": business.description or "",
                 "address": business.address or "",
+                "google_maps_link": getattr(business, "google_maps_link", "") or "",
                 "phone": business.phone or "",
                 "email": business.email or "",
                 "website": business.website or "",
@@ -909,6 +946,7 @@ def vendor_profile(request):
             new_phone = (body.get("phone") or "").strip()
             new_email = (body.get("email") or "").strip()
             new_address = (body.get("address") or "").strip()
+            new_google_maps_link = (body.get("google_maps_link") or "").strip()
             new_website = (body.get("website") or "").strip()
             new_description = (body.get("description") or "").strip()
             new_image = (body.get("image") or "").strip()
@@ -957,6 +995,16 @@ def vendor_profile(request):
                     "after": new_address,
                 })
                 update_kwargs["address"] = new_address
+
+            # Check Google Maps Link
+            current_maps = getattr(business, "google_maps_link", "") or ""
+            if new_google_maps_link != current_maps:
+                changes.append({
+                    "field": "Google Maps Link",
+                    "before": current_maps or "(empty)",
+                    "after": new_google_maps_link or "(cleared)",
+                })
+                update_kwargs["google_maps_link"] = new_google_maps_link
 
             # Check Website
             if new_website != (business.website or ""):
@@ -1038,6 +1086,7 @@ def vendor_profile(request):
                         "category_slug": getattr(business.category, "slug", "") or (slugify(business.category.name) if business.category else ""),
                         "description": business.description or "",
                         "address": business.address or "",
+                        "google_maps_link": getattr(business, "google_maps_link", "") or "",
                         "phone": business.phone or "",
                         "email": business.email or "",
                         "website": business.website or "",
@@ -1121,6 +1170,7 @@ def vendor_profile(request):
                     "category_slug": cat_slug,
                     "description": business.description or "",
                     "address": business.address or "",
+                    "google_maps_link": getattr(business, "google_maps_link", "") or "",
                     "phone": business.phone or "",
                     "email": business.email or "",
                     "website": business.website or "",

@@ -11,10 +11,26 @@ class Category(models.Model):
     icon = models.CharField(max_length=50, blank=True, help_text="Lucide icon name or emoji")
     order = models.PositiveIntegerField(default=0, help_text="Display order in navbar")
     is_active = models.BooleanField(default=True, help_text="Show in navbar and site")
+    show_in_navbar = models.BooleanField(
+        default=False,
+        help_text="Tick to display this category directly in the top navbar (select up to 4 categories)"
+    )
 
     class Meta:
         verbose_name_plural = "Categories"
         ordering = ["order", "name"]
+
+    def clean(self):
+        super().clean()
+        if self.show_in_navbar:
+            existing = Category.objects.filter(show_in_navbar=True)
+            if self.pk:
+                existing = existing.exclude(pk=self.pk)
+            if existing.count() >= 4:
+                from django.core.exceptions import ValidationError
+                raise ValidationError({
+                    "show_in_navbar": "You can select up to 4 categories to show in the navbar. Please uncheck another category first."
+                })
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -39,6 +55,12 @@ class Business(models.Model):
     phone = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
     website = models.URLField(blank=True)
+    google_maps_link = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Google Maps location link for the store"
+    )
 
     image = models.ImageField(
         upload_to="businesses/",
@@ -526,6 +548,21 @@ def ensure_usercredential_table():
             """)
     except Exception:
         pass
+
+
+def ensure_business_google_maps_column():
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("PRAGMA table_info(businesses_business)")
+            cols = [col[1] for col in cursor.fetchall()]
+            if "google_maps_link" not in cols:
+                cursor.execute("ALTER TABLE businesses_business ADD COLUMN google_maps_link VARCHAR(500) DEFAULT ''")
+    except Exception:
+        pass
+
+
+ensure_business_google_maps_column()
+
 
 
 
