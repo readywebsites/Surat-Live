@@ -18,13 +18,26 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Load environment variables from .env
-try:
-    from dotenv import load_dotenv
-    load_dotenv(BASE_DIR / ".env")
-    if (BASE_DIR.parent / ".env").exists():
-        load_dotenv(BASE_DIR.parent / ".env")
-except Exception:
-    pass
+for _env_candidate in [BASE_DIR / ".env", BASE_DIR.parent / ".env", Path.cwd() / ".env"]:
+    if _env_candidate.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(_env_candidate, override=True)
+        except Exception:
+            pass
+        # Direct parsing fallback to guarantee values are loaded into os.environ
+        try:
+            with open(_env_candidate, "r", encoding="utf-8") as _f:
+                for _line in _f:
+                    _line = _line.strip()
+                    if _line and not _line.startswith("#") and "=" in _line:
+                        _k, _v = _line.split("=", 1)
+                        _k = _k.strip()
+                        _v = _v.strip().strip('"').strip("'")
+                        if _v:
+                            os.environ[_k] = _v
+        except Exception:
+            pass
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get(
