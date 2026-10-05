@@ -186,7 +186,7 @@ STORAGES = {
 
 # Email Configuration (Django 6.1 modern MAILERS reading from .env)
 _email_user = os.environ.get("EMAIL_HOST_USER", "").strip()
-_email_pass = os.environ.get("EMAIL_HOST_PASSWORD", "").strip()
+_email_pass = os.environ.get("EMAIL_HOST_PASSWORD", "").strip().replace(" ", "")
 _email_host = os.environ.get("EMAIL_HOST", "smtp.gmail.com").strip()
 _email_port = int(os.environ.get("EMAIL_PORT", 587))
 _email_tls = os.environ.get("EMAIL_USE_TLS", "True").lower() in ["true", "1", "yes"]
@@ -195,11 +195,13 @@ if _email_user and _email_pass:
     MAILERS = {
         'default': {
             'BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
-            'HOST': _email_host,
-            'PORT': _email_port,
-            'USE_TLS': _email_tls,
-            'USERNAME': _email_user,
-            'PASSWORD': _email_pass,
+            'OPTIONS': {
+                'host': _email_host,
+                'port': _email_port,
+                'username': _email_user,
+                'password': _email_pass,
+                'use_tls': _email_tls,
+            },
         },
     }
 else:
