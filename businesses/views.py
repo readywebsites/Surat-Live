@@ -801,35 +801,49 @@ def mask_phone_number(p):
     return p_clean[:2] + " **** " + p_clean[-2:]
 
 
+def mask_email_address(email):
+    if not email or "@" not in email:
+        return ""
+    try:
+        name, domain = email.strip().split("@", 1)
+        if len(name) <= 2:
+            masked_name = name[0] + "*"
+        elif len(name) <= 4:
+            masked_name = name[:2] + "**"
+        else:
+            masked_name = name[:3] + "***" + name[-1]
+        return f"{masked_name}@{domain}"
+    except Exception:
+        return email
+
+
 def track_registration_status(request):
     """
     Public lookup endpoint allowing vendors to check their listing/registration status
-    without logging in, using their phone number or Application Reference ID (e.g. OS-REG-0001).
+    without logging in, using their Application Reference ID (e.g. OS-REG-0001) or registered Email ID.
+    Phone number searching has been replaced with Reference ID and Email ID.
     """
     if request.method != "GET":
         return JsonResponse({"error": "Only GET allowed"}, status=405)
 
     raw_query = (
         request.GET.get("query")
-        or request.GET.get("phone")
+        or request.GET.get("email")
         or request.GET.get("id")
+        or request.GET.get("ref")
         or ""
     ).strip()
 
     if not raw_query:
         return JsonResponse(
-            {"success": False, "found": False, "error": "Please enter your registered phone number or reference ID."},
+            {"success": False, "found": False, "error": "Please enter your registered Email ID or Application Reference ID."},
             status=400,
         )
 
-    # Clean digits
-    digits_only = re.sub(r"\D", "", raw_query)
-    last10 = digits_only[-10:] if len(digits_only) >= 10 else digits_only
-
-    # Extract ID if formatted as OS-REG-0042, OS-BIZ-0042, REG-42, #42, or short integer
+    # 1. Parse Reference ID (e.g. OS-REG-0042, OS-BIZ-0042, REG-42, #42, or plain integer ID)
     parsed_id = None
-    id_match = re.search(r"(?:OS-REG-|OS-BIZ-|REG-|#)?(\d+)", raw_query, re.IGNORECASE)
-    if id_match and not digits_only.startswith("98") and not digits_only.startswith("91") and len(digits_only) < 7:
+    id_match = re.search(r"^(?:OS-REG-|OS-BIZ-|REG-|#)?(\d+)$", raw_query, re.IGNORECASE)
+    if id_match:
         try:
             parsed_id = int(id_match.group(1))
         except ValueError:
@@ -837,7 +851,7 @@ def track_registration_status(request):
 
     reg = None
 
-    # 1. Search in BusinessRegistration table
+    # Check BusinessRegistration table
     has_reg_table = False
     try:
         with connection.cursor() as cursor:
@@ -851,21 +865,13 @@ def track_registration_status(request):
     if has_reg_table:
         qs = BusinessRegistration.objects.all().select_related("category", "created_business")
 
-        # Priority 1: Match parsed ID if small integer / ref
+        # Priority 1: Match parsed Reference ID
         if parsed_id:
             reg = qs.filter(id=parsed_id).first()
 
-        # Priority 2: Match phone
-        if not reg and last10 and len(last10) >= 7:
-            reg = qs.filter(phone__icontains=last10).order_by("-created_at").first()
-
-        # Priority 3: Match raw phone or exact input
+        # Priority 2: Match Email ID (case-insensitive)
         if not reg:
-            reg = qs.filter(phone__iexact=raw_query).order_by("-created_at").first()
-
-        # Priority 4: Match business name if query matches exactly
-        if not reg and len(raw_query) >= 3:
-            reg = qs.filter(business_name__iexact=raw_query).order_by("-created_at").first()
+            reg = qs.filter(email__iexact=raw_query.lower()).order_by("-created_at").first()
 
     if reg:
         status = reg.status or "pending"
@@ -897,7 +903,8 @@ def track_registration_status(request):
                 "owner_name": reg.owner_name or "Business Owner",
                 "category": getattr(reg, "other_category", "") or (reg.category.name if reg.category else (reg.category_name or "General Trade")),
                 "other_category": getattr(reg, "other_category", "") or "",
-                "phone_masked": mask_phone_number(reg.phone),
+                "email": reg.email,
+                "email_masked": mask_email_address(reg.email),
                 "address": reg.address or "Surat, Gujarat",
                 "status": status,
                 "status_display": status_display,
@@ -913,10 +920,8 @@ def track_registration_status(request):
     biz = None
     if parsed_id:
         biz = Business.objects.filter(id=parsed_id).first()
-    if not biz and last10 and len(last10) >= 7:
-        biz = Business.objects.filter(phone__icontains=last10).first()
-    if not biz:
-        biz = Business.objects.filter(phone__iexact=raw_query).first()
+    if not biz and "@" in raw_query:
+        biz = Business.objects.filter(email__iexact=raw_query.lower()).first()
 
     if biz:
         is_verified = getattr(biz, "is_verified", False)
@@ -927,6 +932,7 @@ def track_registration_status(request):
         except Exception:
             has_creds = False
 
+        biz_email = getattr(biz, "email", "") or ""
         return JsonResponse({
             "success": True,
             "found": True,
@@ -936,7 +942,8 @@ def track_registration_status(request):
                 "business_name": biz.name,
                 "owner_name": "Business Owner",
                 "category": biz.category.name if biz.category else "General Trade",
-                "phone_masked": mask_phone_number(biz.phone),
+                "email": biz_email,
+                "email_masked": mask_email_address(biz_email),
                 "address": biz.address or "Surat, Gujarat",
                 "status": status,
                 "status_display": "Approved & Live" if is_verified else "Pending Review",
@@ -951,7 +958,7 @@ def track_registration_status(request):
     return JsonResponse({
         "success": True,
         "found": False,
-        "message": f"No listing registration found for '{raw_query}'. Please verify your 10-digit registered phone number or Application Reference ID.",
+        "message": f"No listing registration found for '{raw_query}'. Please verify your registered Email ID or Application Reference ID (e.g. OS-REG-0001).",
     })
 
 
