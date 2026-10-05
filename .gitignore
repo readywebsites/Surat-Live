@@ -4,6 +4,10 @@ __pycache__/
 *$py.class
 
 # Django database & local files
+*.sqlite3
+*.sqlite3*
+*.sqlite3.bak
+*.db
 db.sqlite3
 db.sqlite3-journal
 *.log

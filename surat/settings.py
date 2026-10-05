@@ -122,13 +122,27 @@ WSGI_APPLICATION = 'surat.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
+_db_engine = os.environ.get("DATABASE_ENGINE", "django.db.backends.sqlite3").strip()
+_db_name = os.environ.get("DATABASE_NAME", "").strip()
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+if _db_engine == "django.db.backends.sqlite3" or not _db_name:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': Path(_db_name) if _db_name else BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': _db_engine,
+            'NAME': _db_name,
+            'USER': os.environ.get("DATABASE_USER", "").strip(),
+            'PASSWORD': os.environ.get("DATABASE_PASSWORD", "").strip(),
+            'HOST': os.environ.get("DATABASE_HOST", "localhost").strip(),
+            'PORT': os.environ.get("DATABASE_PORT", "5432" if "postgresql" in _db_engine else "3306").strip(),
+        }
+    }
 
 
 # Password validation
