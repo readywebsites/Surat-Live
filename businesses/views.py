@@ -467,6 +467,13 @@ def send_email_otp(request):
         </div>
         """
 
+        # Enforce that email SMTP password is configured on the server
+        if not os.environ.get("EMAIL_HOST_PASSWORD"):
+            return JsonResponse({
+                "success": False,
+                "error": "Email service is not yet configured with an SMTP password on the server. Please contact support or set EMAIL_HOST_PASSWORD in server .env."
+            }, status=503)
+
         try:
             send_mail(
                 subject=subject,
@@ -477,12 +484,15 @@ def send_email_otp(request):
                 fail_silently=False,
             )
         except Exception as mail_err:
-            print(f"[Email OTP send_mail info]: {mail_err}")
+            print(f"[Email OTP send_mail error]: {mail_err}")
+            return JsonResponse({
+                "success": False,
+                "error": f"Failed to deliver verification email to {email}. Error: {mail_err}"
+            }, status=500)
 
         return JsonResponse({
             "success": True,
             "message": f"Verification code sent to {email}. Please check your inbox.",
-            "dev_hint": otp_code if settings.DEBUG and not os.environ.get("EMAIL_HOST_PASSWORD") else None,
         })
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=400)
