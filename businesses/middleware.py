@@ -29,6 +29,24 @@ class EnsureSchemaMiddleware:
                     if biz_cols and "google_maps_link" not in biz_cols:
                         cursor.execute("ALTER TABLE businesses_business ADD COLUMN google_maps_link VARCHAR(500) DEFAULT ''")
 
+                    # 3. Auto-seed default categories if empty so they immediately appear in admin and APIs
+                    cursor.execute("SELECT count(*) FROM businesses_category")
+                    if cursor.fetchone()[0] == 0:
+                        default_categories = [
+                            ("Business Consultancy & Digital Marketing", "website-development-digital-marketing", "Surat business consultancy, branding, digital marketing & web development.", "Briefcase", 1, 1, 1),
+                            ("Textiles & Sarees", "textiles-sarees", "Direct Surat Jacquard looms, silk saree manufacturers, and fabric wholesalers.", "Scissors", 2, 1, 1),
+                            ("Diamonds & Jewelry", "diamonds-jewelry", "Certified CVD lab-grown diamonds, natural diamond bourses, and jewelry artisans.", "Gem", 3, 1, 1),
+                            ("Surti Street Food", "surti-street-food", "Authentic Surti Butter Locho, Ghari sweets, Khaman, and catering specialists.", "Utensils", 4, 1, 1),
+                            ("Local Services", "local-services", "Logistics, cargo dispatch, machinery spares, and industrial support.", "Truck", 5, 1, 0),
+                        ]
+                        cursor.executemany(
+                            """
+                            INSERT INTO businesses_category (name, slug, description, icon, "order", is_active, show_in_navbar)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            default_categories,
+                        )
+
                 EnsureSchemaMiddleware._schema_verified = True
             except Exception:
                 pass
