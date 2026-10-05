@@ -14,6 +14,7 @@ from .models import (
     Notification,
     UserProfile,
     UserCredential,
+    VerificationOTP,
     ensure_notification_table,
     ensure_vendorupdatelog_table,
     ensure_userprofile_table,
@@ -243,21 +244,42 @@ class ReviewAdmin(admin.ModelAdmin):
     search_fields = ("customer_name", "business__name")
 
 
+class CategorySourceFilter(admin.SimpleListFilter):
+    title = "Category Type"
+    parameter_name = "category_type"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("other", "🆕 'Other' Custom Category Requests"),
+            ("catalog", "Standard Catalog Categories"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "other":
+            return queryset.exclude(other_category="").exclude(other_category__isnull=True)
+        if self.value() == "catalog":
+            return queryset.filter(models.Q(other_category="") | models.Q(other_category__isnull=True))
+        return queryset
+
+
 @admin.register(BusinessRegistration)
 class BusinessRegistrationAdmin(admin.ModelAdmin):
     list_display = (
         "business_name",
         "owner_name",
         "phone",
+        "get_phone_verification",
+        "get_email_verification",
         "get_category_display",
+        "is_other_category_request",
         "status",
         "created_business",
         "created_at",
     )
-    list_filter = ("status", "created_at")
-    search_fields = ("business_name", "owner_name", "phone", "email", "address")
-    readonly_fields = ("created_at", "updated_at")
-    actions = ["approve_and_create_businesses"]
+    list_filter = ("is_phone_verified", "is_email_verified", CategorySourceFilter, "status", "created_at")
+    search_fields = ("business_name", "owner_name", "phone", "email", "address", "other_category")
+    readonly_fields = ("category_action_helper", "created_at", "updated_at")
+    actions = ["approve_and_create_businesses", "create_categories_from_other_requests"]
 
     fieldsets = (
         (
@@ -267,9 +289,13 @@ class BusinessRegistrationAdmin(admin.ModelAdmin):
                     "business_name",
                     "owner_name",
                     "category",
+                    "other_category",
                     "category_name",
+                    "category_action_helper",
                     "phone",
+                    "is_phone_verified",
                     "email",
+                    "is_email_verified",
                     "address",
                     "description",
                     "website",
@@ -292,21 +318,200 @@ class BusinessRegistrationAdmin(admin.ModelAdmin):
         ),
     )
 
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:reg_id>/add-category/",
+                self.admin_site.admin_view(self.add_category_view),
+                name="businesses_businessregistration_add_cat",
+            ),
+            path(
+                "<int:reg_id>/link-category/",
+                self.admin_site.admin_view(self.link_category_view),
+                name="businesses_businessregistration_link_cat",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_category_view(self, request, reg_id):
+        from django.shortcuts import get_object_or_404, redirect
+        from django.contrib import messages
+        from django.utils.text import slugify
+
+        reg = get_object_or_404(BusinessRegistration, pk=reg_id)
+        cat_name = (reg.other_category or "").strip()
+        if not cat_name:
+            messages.warning(request, "No custom 'Other' category was specified on this registration.")
+            return redirect("../change/")
+
+        cat = Category.objects.filter(name__iexact=cat_name).first()
+        created = False
+        if not cat:
+            cat = Category.objects.create(
+                name=cat_name,
+                slug=slugify(cat_name),
+                is_active=True,
+                order=10,
+            )
+            created = True
+
+        reg.category = cat
+        reg.category_name = cat.name
+        reg.save(update_fields=["category", "category_name"])
+
+        if created:
+            messages.success(request, f"Successfully created new Category '{cat.name}' and linked it to '{reg.business_name}'!")
+        else:
+            messages.info(request, f"Linked existing Category '{cat.name}' to '{reg.business_name}'.")
+
+        return redirect("../change/")
+
+    def link_category_view(self, request, reg_id):
+        from django.shortcuts import get_object_or_404, redirect
+        from django.contrib import messages
+
+        reg = get_object_or_404(BusinessRegistration, pk=reg_id)
+        cat_id = request.GET.get("cat_id")
+        if cat_id:
+            cat = Category.objects.filter(pk=cat_id).first()
+            if cat:
+                reg.category = cat
+                reg.category_name = cat.name
+                reg.save(update_fields=["category", "category_name"])
+                messages.success(request, f"Linked Category '{cat.name}' to '{reg.business_name}'!")
+        return redirect("../change/")
+
     @admin.display(description="Category")
     def get_category_display(self, obj):
+        if obj.other_category:
+            if obj.category:
+                return mark_safe(
+                    f'<span style="color:#0f172a; font-weight:600;">{obj.category.name}</span> '
+                    f'<br><small style="color:#b45309; background:#fef3c7; padding:1px 6px; border-radius:3px; font-weight:700;">(Requested: {obj.other_category})</small>'
+                )
+            return mark_safe(
+                f'<span style="background:#fef3c7; color:#b45309; padding:2px 8px; border-radius:4px; font-weight:700; border:1px solid #fde68a;">'
+                f'🆕 Other: {obj.other_category}'
+                f'</span>'
+            )
         return obj.category.name if obj.category else obj.category_name or "—"
+
+    @admin.display(description="Custom Request?", boolean=True)
+    def is_other_category_request(self, obj):
+        return bool(obj.other_category)
+
+    @admin.display(description="Phone Verified?")
+    def get_phone_verification(self, obj):
+        if getattr(obj, "is_phone_verified", False):
+            return mark_safe('<span style="color:#16a34a; font-weight:700;">🟢 Phone Verified</span>')
+        return mark_safe('<span style="color:#dc2626; font-weight:600;">❌ Unverified</span>')
+
+    @admin.display(description="Email Verified?")
+    def get_email_verification(self, obj):
+        if getattr(obj, "is_email_verified", False):
+            return mark_safe('<span style="color:#16a34a; font-weight:700;">🟢 Email Verified</span>')
+        return mark_safe('<span style="color:#dc2626; font-weight:600;">❌ Unverified</span>')
+
+    @admin.display(description="Category Review & Quick Actions")
+    def category_action_helper(self, obj):
+        if not obj or not obj.id:
+            return "Save the registration first to review category actions."
+
+        custom = (obj.other_category or "").strip()
+        if not custom:
+            return mark_safe(
+                f'<div style="color:#475569; font-size:13px;">'
+                f'Standard category selected: <strong>{obj.category.name if obj.category else "None"}</strong>. No custom category requested.'
+                f'</div>'
+            )
+
+        existing = Category.objects.filter(name__iexact=custom).first()
+        if existing:
+            if obj.category_id == existing.id:
+                return mark_safe(
+                    f'<div style="padding:10px 14px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; color:#166534; font-size:13px; line-height:1.5;">'
+                    f'✅ <strong>Linked to Category:</strong> "{existing.name}" is an active category and linked to this registration.'
+                    f'</div>'
+                )
+            else:
+                return mark_safe(
+                    f'<div style="padding:10px 14px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; color:#1e40af; font-size:13px; line-height:1.5;">'
+                    f'ℹ️ Category <strong>"{existing.name}"</strong> already exists in the system.<br>'
+                    f'<a href="link-category/?cat_id={existing.id}" class="button" style="margin-top:6px; display:inline-block; background:#2563eb; color:#ffffff; font-weight:600; padding:4px 12px; border-radius:4px; text-decoration:none;">🔗 Link to "{existing.name}" Now</a>'
+                    f'</div>'
+                )
+
+        return mark_safe(
+            f'<div style="padding:12px 16px; background:#fffbeb; border:1px solid #fcd34d; border-radius:6px; color:#92400e; font-size:13px; line-height:1.6;">'
+            f'⚠️ <strong>New Category Requested:</strong> Merchant entered custom category <strong style="color:#78350f; font-size:14px;">"{custom}"</strong>.<br>'
+            f'This category does not yet exist in platform categories.<br>'
+            f'<div style="margin-top:8px;">'
+            f'<a href="add-category/" class="button" style="background:#16a34a; color:#ffffff; font-weight:700; padding:6px 14px; border-radius:4px; text-decoration:none; display:inline-block;">➕ Add "{custom}" to Platform Categories &amp; Link</a>'
+            f'</div>'
+            f'</div>'
+        )
+
+    @admin.action(description="➕ Create new Categories from selected 'Other' requests & link them")
+    def create_categories_from_other_requests(self, request, queryset):
+        from django.utils.text import slugify
+        created_count = 0
+        linked_count = 0
+        for reg in queryset:
+            cat_name = (reg.other_category or "").strip()
+            if not cat_name:
+                continue
+
+            cat = Category.objects.filter(name__iexact=cat_name).first()
+            if not cat:
+                cat = Category.objects.create(
+                    name=cat_name,
+                    slug=slugify(cat_name),
+                    is_active=True,
+                    order=10,
+                )
+                created_count += 1
+            reg.category = cat
+            reg.category_name = cat.name
+            reg.save(update_fields=["category", "category_name"])
+            linked_count += 1
+
+        self.message_user(
+            request,
+            f"Created {created_count} new category(ies) and linked {linked_count} registration(s).",
+        )
 
     @admin.action(description="✓ Approve & convert selected registrations into Verified Businesses")
     def approve_and_create_businesses(self, request, queryset):
+        from django.utils.text import slugify
         created_count = 0
         for reg in queryset.filter(status="pending"):
             full_desc = reg.description
             if reg.owner_name:
                 full_desc = f"Owner: {reg.owner_name}. {reg.description}".strip()
 
+            biz_cat = reg.category
+            if not biz_cat and reg.other_category:
+                cat_name = reg.other_category.strip()
+                biz_cat = Category.objects.filter(name__iexact=cat_name).first()
+                if not biz_cat:
+                    biz_cat = Category.objects.create(
+                        name=cat_name,
+                        slug=slugify(cat_name),
+                        is_active=True,
+                        order=10,
+                    )
+                reg.category = biz_cat
+                reg.category_name = biz_cat.name
+                reg.save(update_fields=["category", "category_name"])
+
+            if not biz_cat:
+                biz_cat = Category.objects.first()
+
             biz = Business.objects.create(
                 name=reg.business_name,
-                category=reg.category,
+                category=biz_cat,
                 phone=reg.phone,
                 email=reg.email,
                 address=reg.address,
@@ -491,5 +696,32 @@ class UserCredentialAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+
+@admin.register(VerificationOTP)
+class VerificationOTPAdmin(admin.ModelAdmin):
+    list_display = (
+        "target",
+        "target_type",
+        "otp_code",
+        "get_verification_status",
+        "attempts",
+        "created_at",
+        "expires_at",
+        "verified_at",
+    )
+    list_filter = ("target_type", "is_verified", "created_at")
+    search_fields = ("target", "otp_code", "ip_address")
+    readonly_fields = ("created_at", "verified_at")
+
+    @admin.display(description="Status")
+    def get_verification_status(self, obj):
+        from django.utils import timezone
+        if obj.is_verified:
+            return mark_safe('<span style="color:#16a34a; font-weight:700;">✅ Verified</span>')
+        if obj.expires_at < timezone.now():
+            return mark_safe('<span style="color:#64748b; font-weight:600;">⏱️ Expired</span>')
+        return mark_safe('<span style="color:#d97706; font-weight:700;">🟡 Pending Code</span>')
+
 
 

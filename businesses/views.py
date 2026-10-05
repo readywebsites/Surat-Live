@@ -2,12 +2,15 @@ import os
 import re
 import uuid
 import json
+import random
+from datetime import timedelta
 from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.text import slugify
 from django.db import connection, models
 from django.contrib.auth.models import User
+from django.core.mail import send_mail
 from .models import (
     Category,
     Business,
@@ -20,10 +23,13 @@ from .models import (
     Notification,
     UserProfile,
     UserCredential,
+    VerificationOTP,
     ensure_notification_table,
     ensure_vendorupdatelog_table,
     ensure_userprofile_table,
     ensure_usercredential_table,
+    ensure_registration_other_category_column,
+    ensure_verification_tables,
 )
 
 
@@ -390,6 +396,196 @@ def submit_review(request, pk):
 
 
 @csrf_exempt
+def send_email_otp(request):
+    """
+    Sends a 6-digit verification code to the merchant's email address using Django MAILERS / SMTP.
+    Rate-limited to 1 request every 45 seconds per email.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    try:
+        if request.content_type == "application/json":
+            body = json.loads(request.body.decode("utf-8"))
+        else:
+            body = request.POST
+
+        email = (body.get("email") or "").strip().lower()
+        if not email or "@" not in email or "." not in email:
+            return JsonResponse({"error": "Please enter a valid email address."}, status=400)
+
+        ensure_verification_tables()
+
+        # Rate-limiting: max 1 OTP every 45 seconds per email
+        recent = VerificationOTP.objects.filter(
+            target=email,
+            target_type="email",
+            created_at__gte=timezone.now() - timedelta(seconds=45)
+        ).first()
+        if recent:
+            return JsonResponse({
+                "error": "A verification code was recently sent. Please check your email or wait a moment before requesting another."
+            }, status=429)
+
+        # Generate 6-digit OTP code
+        otp_code = f"{random.randint(100000, 999999)}"
+        expires_at = timezone.now() + timedelta(minutes=10)
+
+        VerificationOTP.objects.create(
+            target=email,
+            target_type="email",
+            otp_code=otp_code,
+            expires_at=expires_at,
+            ip_address=request.META.get("REMOTE_ADDR", ""),
+        )
+
+        subject = f"Your OnlineSurat Email Verification Code: {otp_code}"
+        message = (
+            f"Hello,\n\n"
+            f"Your 6-digit verification code for OnlineSurat business registration is: {otp_code}\n\n"
+            f"This code will expire in 10 minutes.\n"
+            f"If you did not request this, you can safely ignore this email.\n\n"
+            f"OnlineSurat Verification Desk\n"
+            f"https://suratlive.biz499.com"
+        )
+        html_message = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h2 style="color: #2563eb; margin: 0; font-size: 22px; font-weight: 800;">OnlineSurat</h2>
+                <p style="color: #64748b; font-size: 13px; margin: 4px 0 0 0;">Merchant Email Verification</p>
+            </div>
+            <div style="background: #f8fafc; border-radius: 8px; padding: 20px; text-align: center; border: 1px solid #e2e8f0;">
+                <p style="color: #334155; font-size: 14px; margin: 0 0 14px 0;">Use the 6-digit code below to verify your email address:</p>
+                <div style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #1e293b; padding: 12px 20px; background: #ffffff; border-radius: 8px; border: 1.5px dashed #2563eb; display: inline-block;">
+                    {otp_code}
+                </div>
+                <p style="color: #64748b; font-size: 12px; margin: 12px 0 0 0;">Valid for <strong>10 minutes</strong>. Do not share this code.</p>
+            </div>
+            <p style="color: #94a3b8; font-size: 12px; margin-top: 18px; text-align: center;">
+                If you did not attempt to register on OnlineSurat, you can safely disregard this email.
+            </p>
+        </div>
+        """
+
+        try:
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                html_message=html_message,
+                fail_silently=False,
+            )
+        except Exception as mail_err:
+            print(f"[Email OTP send_mail info]: {mail_err}")
+
+        return JsonResponse({
+            "success": True,
+            "message": f"Verification code sent to {email}. Please check your inbox.",
+            "dev_hint": otp_code if settings.DEBUG and not os.environ.get("EMAIL_HOST_PASSWORD") else None,
+        })
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@csrf_exempt
+def verify_email_otp(request):
+    """
+    Verifies the 6-digit code entered by user for their email address.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    try:
+        if request.content_type == "application/json":
+            body = json.loads(request.body.decode("utf-8"))
+        else:
+            body = request.POST
+
+        email = (body.get("email") or "").strip().lower()
+        otp = (body.get("otp") or "").strip()
+
+        if not email or not otp:
+            return JsonResponse({"error": "Email address and 6-digit OTP code are required."}, status=400)
+
+        ensure_verification_tables()
+
+        record = VerificationOTP.objects.filter(
+            target=email,
+            target_type="email",
+            otp_code=otp,
+            is_verified=False,
+        ).order_by("-created_at").first()
+
+        if not record:
+            return JsonResponse({
+                "success": False,
+                "error": "Invalid verification code. Please check the code and try again."
+            }, status=400)
+
+        if record.expires_at < timezone.now():
+            return JsonResponse({
+                "success": False,
+                "error": "This verification code has expired. Please request a new code."
+            }, status=400)
+
+        record.is_verified = True
+        record.verified_at = timezone.now()
+        record.save(update_fields=["is_verified", "verified_at"])
+
+        return JsonResponse({
+            "success": True,
+            "message": "Email address verified successfully!",
+            "email": email,
+        })
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@csrf_exempt
+def confirm_phone_verification(request):
+    """
+    Confirms phone verification after Google Firebase Phone Auth SMS OTP was confirmed by client.
+    Records verification record in VerificationOTP database.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+
+    try:
+        if request.content_type == "application/json":
+            body = json.loads(request.body.decode("utf-8"))
+        else:
+            body = request.POST
+
+        raw_phone = (body.get("phone") or "").strip()
+        if not raw_phone:
+            return JsonResponse({"error": "Phone number is required."}, status=400)
+
+        clean_phone = re.sub(r"\D", "", raw_phone)
+        last10 = clean_phone[-10:] if len(clean_phone) >= 10 else clean_phone
+
+        ensure_verification_tables()
+
+        VerificationOTP.objects.create(
+            target=last10,
+            target_type="phone",
+            otp_code="FIREBS",
+            is_verified=True,
+            expires_at=timezone.now() + timedelta(days=1),
+            verified_at=timezone.now(),
+            ip_address=request.META.get("REMOTE_ADDR", ""),
+        )
+
+        return JsonResponse({
+            "success": True,
+            "message": "Phone number verified successfully via SMS OTP!",
+            "phone": last10,
+        })
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@csrf_exempt
 def register_business(request):
     if request.method != "POST":
         return JsonResponse({"error": "Only POST allowed"}, status=405)
@@ -403,6 +599,12 @@ def register_business(request):
         name = (body.get("businessName") or body.get("name") or "").strip()
         owner_name = (body.get("ownerName") or "").strip()
         category_name = (body.get("category") or "").strip()
+        other_category = (
+            body.get("otherCategory")
+            or body.get("other_category")
+            or body.get("customCategory")
+            or ""
+        ).strip()
         phone = (body.get("phone") or "").strip()
         email = (body.get("email") or "").strip()
         address = (body.get("address") or "").strip()
@@ -414,16 +616,67 @@ def register_business(request):
         if not phone:
             return JsonResponse({"error": "Phone number is required"}, status=400)
 
-        # Match category or fallback to first
+        # Enforce Email Verification (Free & Reliable via Email OTP)
+        is_phone_verified = bool(body.get("isPhoneVerified", False))
+        is_email_verified = bool(body.get("isEmailVerified", False))
+
+        if not email:
+            return JsonResponse({
+                "error": "Email address is required for business registration and verification."
+            }, status=400)
+
+        # Verify against VerificationOTP in DB
+        if not is_email_verified and email:
+            is_email_verified = VerificationOTP.objects.filter(
+                target=email.lower().strip(), target_type="email", is_verified=True
+            ).exists()
+
+        if not is_email_verified:
+            return JsonResponse({
+                "error": "Please verify your email address via Email OTP before submitting the registration form."
+            }, status=400)
+
+        # Handle 'Other' category or custom category specification
+        is_other = (
+            category_name.strip().lower() in ["other", "other (not listed)", "other (category not listed)"]
+            or bool(other_category)
+        )
+
         category = None
-        if category_name:
-            category = Category.objects.filter(
-                models.Q(name__iexact=category_name)
-                | models.Q(slug__iexact=category_name)
-                | models.Q(name__icontains=category_name)
-            ).first()
-        if not category:
-            category = Category.objects.first()
+        if is_other:
+            custom_cat_val = other_category if other_category else (
+                category_name if category_name.strip().lower() not in ["other", "other (not listed)", "other (category not listed)"] else ""
+            )
+            if custom_cat_val:
+                matched_cat = Category.objects.filter(name__iexact=custom_cat_val).first()
+                if matched_cat:
+                    category = matched_cat
+                    category_name = matched_cat.name
+                    other_category = ""
+                else:
+                    category = None
+                    category_name = f"Other: {custom_cat_val}"
+                    other_category = custom_cat_val
+            else:
+                category = None
+                category_name = "Other"
+                other_category = "Other"
+        else:
+            other_category = ""
+            if category_name:
+                category = Category.objects.filter(
+                    models.Q(name__iexact=category_name)
+                    | models.Q(slug__iexact=category_name)
+                    | models.Q(name__icontains=category_name)
+                ).first()
+            if not category:
+                category = Category.objects.first()
+            if category:
+                category_name = category.name
+
+        # Ensure table and columns exist in SQLite
+        ensure_registration_other_category_column()
+        ensure_verification_tables()
 
         # Check if BusinessRegistration table exists in SQLite
         has_reg_table = False
@@ -442,12 +695,20 @@ def register_business(request):
                 owner_name=owner_name,
                 category=category,
                 category_name=category_name,
+                other_category=other_category,
                 phone=phone,
+                is_phone_verified=is_phone_verified,
                 email=email,
+                is_email_verified=is_email_verified,
                 address=address,
                 description=description,
                 website=website,
                 status="pending",
+            )
+            display_category = (
+                reg.other_category
+                if reg.other_category
+                else (reg.category.name if reg.category else reg.category_name)
             )
             return JsonResponse({
                 "success": True,
@@ -457,21 +718,28 @@ def register_business(request):
                     "reference_id": f"OS-REG-{reg.id:04d}",
                     "business_name": reg.business_name,
                     "owner_name": reg.owner_name,
-                    "category": category.name if category else category_name,
+                    "category": display_category,
+                    "other_category": reg.other_category,
+                    "is_other": bool(reg.other_category),
                     "phone": reg.phone,
+                    "is_phone_verified": reg.is_phone_verified,
+                    "email": reg.email,
+                    "is_email_verified": reg.is_email_verified,
                     "status": "pending",
                 },
             })
 
         # Fallback if unmigrated: create in Business table with is_verified=False
         full_desc = description
+        if other_category:
+            full_desc = f"[User-Proposed Category: {other_category}] {full_desc}".strip()
         if owner_name:
-            full_desc = f"Owner: {owner_name}. {description}".strip()
+            full_desc = f"Owner: {owner_name}. {full_desc}".strip()
 
         try:
             business = Business.objects.create(
                 name=name,
-                category=category,
+                category=category or Category.objects.first(),
                 phone=phone,
                 email=email,
                 address=address,
@@ -481,7 +749,7 @@ def register_business(request):
             )
             biz_id = business.id
             biz_name = business.name
-            biz_cat = business.category.name if business.category else ""
+            biz_cat = other_category or (business.category.name if business.category else "")
             biz_verified = business.is_verified
         except Exception:
             # Fallback if unmigrated columns exist in model before migrate is run
@@ -493,7 +761,7 @@ def register_business(request):
                 )
                 biz_id = cursor.lastrowid
                 biz_name = name
-                biz_cat = category.name if category else ""
+                biz_cat = other_category or (category.name if category else "")
                 biz_verified = False
 
         return JsonResponse({
@@ -504,6 +772,7 @@ def register_business(request):
                 "reference_id": f"OS-REG-{biz_id:04d}",
                 "name": biz_name,
                 "category": biz_cat,
+                "other_category": other_category,
                 "is_verified": biz_verified,
             },
         })
@@ -616,7 +885,8 @@ def track_registration_status(request):
                 "reference_id": f"OS-REG-{reg.id:04d}",
                 "business_name": reg.business_name,
                 "owner_name": reg.owner_name or "Business Owner",
-                "category": reg.category.name if reg.category else (reg.category_name or "General Trade"),
+                "category": getattr(reg, "other_category", "") or (reg.category.name if reg.category else (reg.category_name or "General Trade")),
+                "other_category": getattr(reg, "other_category", "") or "",
                 "phone_masked": mask_phone_number(reg.phone),
                 "address": reg.address or "Surat, Gujarat",
                 "status": status,

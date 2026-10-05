@@ -22,5 +22,8 @@ urlpatterns = [
     path("users/profile/", views.user_profile, name="user-profile"),
     path("users/dashboard-data/", views.user_dashboard_data, name="user-dashboard-data"),
     path("users/toggle-saved/", views.user_toggle_saved, name="user-toggle-saved"),
+    path("auth/send-email-otp/", views.send_email_otp, name="send-email-otp"),
+    path("auth/verify-email-otp/", views.verify_email_otp, name="verify-email-otp"),
+    path("auth/confirm-phone-verification/", views.confirm_phone_verification, name="confirm-phone-verification"),
 ]
 

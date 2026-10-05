@@ -258,13 +258,27 @@ class BusinessRegistration(models.Model):
         blank=True,
         help_text="Category name if not matched with an existing category",
     )
+    other_category = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        help_text="Custom category entered by merchant if 'Other' was chosen",
+    )
     phone = models.CharField(
         max_length=20,
         help_text="Primary phone or WhatsApp contact number",
     )
+    is_phone_verified = models.BooleanField(
+        default=False,
+        help_text="Whether phone number was verified via SMS OTP",
+    )
     email = models.EmailField(
         blank=True,
         help_text="Contact email address",
+    )
+    is_email_verified = models.BooleanField(
+        default=False,
+        help_text="Whether email address was verified via Email OTP",
     )
     address = models.CharField(
         max_length=300,
@@ -559,6 +573,100 @@ def ensure_business_google_maps_column():
                 cursor.execute("ALTER TABLE businesses_business ADD COLUMN google_maps_link VARCHAR(500) DEFAULT ''")
     except Exception:
         pass
+
+
+def ensure_registration_other_category_column():
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("PRAGMA table_info(businesses_businessregistration)")
+            cols = [col[1] for col in cursor.fetchall()]
+            if cols and "other_category" not in cols:
+                cursor.execute("ALTER TABLE businesses_businessregistration ADD COLUMN other_category VARCHAR(150) DEFAULT ''")
+            if cols and "is_phone_verified" not in cols:
+                cursor.execute("ALTER TABLE businesses_businessregistration ADD COLUMN is_phone_verified BOOLEAN NOT NULL DEFAULT 0")
+            if cols and "is_email_verified" not in cols:
+                cursor.execute("ALTER TABLE businesses_businessregistration ADD COLUMN is_email_verified BOOLEAN NOT NULL DEFAULT 0")
+    except Exception:
+        pass
+
+
+class VerificationOTP(models.Model):
+    TYPE_CHOICES = [
+        ("email", "Email OTP"),
+        ("phone", "Phone SMS OTP"),
+    ]
+
+    target = models.CharField(
+        max_length=150,
+        db_index=True,
+        help_text="Phone number or Email address being verified",
+    )
+    target_type = models.CharField(
+        max_length=10,
+        choices=TYPE_CHOICES,
+        default="email",
+    )
+    otp_code = models.CharField(
+        max_length=6,
+        help_text="6-digit verification code",
+    )
+    is_verified = models.BooleanField(
+        default=False,
+        help_text="Whether this OTP was successfully verified",
+    )
+    expires_at = models.DateTimeField(
+        help_text="Expiration timestamp (typically 10 minutes)",
+    )
+    attempts = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of verification attempts made",
+    )
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Exact timestamp when verification was confirmed",
+    )
+    ip_address = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="IP address of requester for rate-limiting",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Phone & Email Verification Record"
+        verbose_name_plural = "Phone & Email Verification Records"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        status = "Verified" if self.is_verified else "Pending"
+        return f"[{self.target_type.upper()}] {self.target} - {self.otp_code} ({status})"
+
+
+def ensure_verification_tables():
+    ensure_registration_other_category_column()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS businesses_verificationotp (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    target VARCHAR(150) NOT NULL,
+                    target_type VARCHAR(10) NOT NULL,
+                    otp_code VARCHAR(6) NOT NULL,
+                    is_verified BOOLEAN NOT NULL DEFAULT 0,
+                    expires_at DATETIME NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    verified_at DATETIME,
+                    ip_address VARCHAR(50) DEFAULT '',
+                    created_at DATETIME NOT NULL
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_verification_target ON businesses_verificationotp(target)")
+    except Exception:
+        pass
+
+
+
 
 
 

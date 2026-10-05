@@ -17,12 +17,20 @@ import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
+# Load environment variables from .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+    if (BASE_DIR.parent / ".env").exists():
+        load_dotenv(BASE_DIR.parent / ".env")
+except Exception:
+    pass
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-r@*7_&y@m%#x3+j^&ef$l3nb6f1j)8)k_oc^pu4(e)eq9@9k0m'
+SECRET_KEY = os.environ.get(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-r@*7_&y@m%#x3+j^&ef$l3nb6f1j)8)k_oc^pu4(e)eq9@9k0m",
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -163,14 +171,35 @@ STORAGES = {
 }
 
 
-# Email
-# https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
+# Email Configuration (Django 6.1 modern MAILERS reading from .env)
+_email_user = os.environ.get("EMAIL_HOST_USER", "").strip()
+_email_pass = os.environ.get("EMAIL_HOST_PASSWORD", "").strip()
+_email_host = os.environ.get("EMAIL_HOST", "smtp.gmail.com").strip()
+_email_port = int(os.environ.get("EMAIL_PORT", 587))
+_email_tls = os.environ.get("EMAIL_USE_TLS", "True").lower() in ["true", "1", "yes"]
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+if _email_user and _email_pass:
+    MAILERS = {
+        'default': {
+            'BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
+            'HOST': _email_host,
+            'PORT': _email_port,
+            'USE_TLS': _email_tls,
+            'USERNAME': _email_user,
+            'PASSWORD': _email_pass,
+        },
+    }
+else:
+    MAILERS = {
+        'default': {
+            'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        },
+    }
+
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL",
+    f"OnlineSurat Verification <{_email_user or 'noreply@suratlive.biz499.com'}>",
+)
 
 # CORS Configuration for React Frontend & Live Domain
 _env_cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
@@ -229,3 +258,4 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
